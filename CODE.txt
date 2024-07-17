@@ -1,0 +1,88 @@
+# Load necessary libraries
+library(psych)       # For visualization
+library(DataExplorer)
+library(car)
+library(lmtest)
+library(ModelMetrics)
+library(MASS)        # For multiple linear regression
+library(glmnet)      # For Lasso and Ridge regression
+
+# Import data
+le_data <- read.csv("C:/Users/HP/Downloads/default of credit card clients.csv")
+
+# Perform EDA
+# Understand data structure
+str(le_data)
+
+# Missingness analysis
+summary(le_data)
+plot_missing(le_data)
+
+# Understand distributions and correlations
+plot_correlation(le_data)
+
+# Data partition
+set.seed(1234)
+le_mixed <- le_data[order(runif(nrow(le_data))),]
+le_training <- le_mixed[1:floor(0.7*nrow(le_mixed)),]
+le_testing <- le_mixed[(floor(0.7*nrow(le_mixed))+1):nrow(le_mixed),]
+names(le_testing)
+
+# Simple Linear Regression (using one feature for demonstration, e.g., LIMIT_BAL)
+le_lm_simple <- lm(default.payment.next.month ~ LIMIT_BAL, data = le_training)
+summary(le_lm_simple)
+# Model diagnostics
+plot(le_lm_simple)
+
+# Evaluate model performance
+mse(le_testing$default.payment.next.month, le_lm_pred)
+
+Sle_lm_full <- lm(default.payment.next.month ~ LIMIT_BAL + SEX + EDUCATION + MARRIAGE + AGE + 
+                   PAY_0 + PAY_2 + PAY_3 + PAY_4 + PAY_5 + PAY_6 + 
+                   BILL_AMT1 + BILL_AMT2 + BILL_AMT3 + BILL_AMT4 + BILL_AMT5 + BILL_AMT6 + 
+                   PAY_AMT1 + PAY_AMT2 + PAY_AMT3 + PAY_AMT4 + PAY_AMT5 + PAY_AMT6, 
+                 data = le_training)
+summary(le_lm_full)
+
+# Select the best features using stepwise selection
+le_step <- stepAIC(le_lm_full, direction = "backward")
+
+
+# Build the reduced model based on selected features
+selected_vars <- names(coef(le_step))
+formula <- as.formula(paste("default.payment.next.month ~", paste(selected_vars[-1], collapse = " + ")))
+le_lm_red <- lm(formula, data = le_training)
+summary(le_lm_red)
+mse(le_testing$default.payment.next.month, le_lm_pred)
+
+# Model diagnostics for the reduced model
+par(mfrow=c(2,2))
+plot(le_lm_red)
+
+# Use the reduced model for predictions
+le_lm_pred <- predict(le_lm_red, newdata = le_testing)
+newtest_pred <- cbind(le_testing, le_lm_pred)
+head(newtest_pred)
+
+# Evaluate the reduced model performance
+mse(le_testing$default.payment.next.month, le_lm_pred)
+
+# Prepare data for Lasso and Ridge regression
+x_train <- model.matrix(default.payment.next.month ~ .-1, data = le_training)
+y_train <- le_training$default.payment.next.month
+x_test <- model.matrix(default.payment.next.month ~ .-1, data = le_testing)
+y_test <- le_testing$default.payment.next.month
+
+# Lasso Regression
+lasso_model <- glmnet(x_train, y_train, alpha = 1)
+cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
+best_lambda_lasso <- cv_lasso$lambda.min
+lasso_pred <- predict(lasso_model, s = best_lambda_lasso, newx = x_test)
+mse(y_test, lasso_pred)
+
+# Ridge Regression
+ridge_model <- glmnet(x_train, y_train, alpha = 0)
+cv_ridge <- cv.glmnet(x_train, y_train, alpha = 0)
+best_lambda_ridge <- cv_ridge$lambda.min
+ridge_pred <- predict(ridge_model, s = best_lambda_ridge, newx = x_test)
+mse(y_test, ridge_pred)
